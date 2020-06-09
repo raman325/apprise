@@ -9,4 +9,5 @@ cryptography
 
 # Plugin Dependencies
 sleekxmpp
+slixmpp; python_version >= '3.0'
 gntp
