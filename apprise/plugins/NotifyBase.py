@@ -32,6 +32,8 @@ from ..common import NotifyFormat
 from ..common import NOTIFY_FORMATS
 from ..common import OverflowMode
 from ..common import OVERFLOW_MODES
+from ..utils import validate_regex
+from ..utils import to_unicode
 from ..AppriseLocale import gettext_lazy as _
 from ..AppriseAttachment import AppriseAttachment
 
@@ -80,6 +82,12 @@ class NotifyBase(URLBase):
     # use a <b> tag.  The below causes the <b>title</b> to get generated:
     default_html_tag_id = 'b'
 
+    # This is the input encoding of the message and title data. This is the
+    # only way we can properly format the content going out (if we not
+    # the format of the content coming in).  This can be over-ridden
+    # using the encoding=<value> on the specified Apprise URL
+    encoding = 'utf-8'
+
     # Here is where we define all of the arguments we accept on the url
     # such as: schema://whatever/?overflow=upstream&format=text
     # These act the same way as tokens except they are optional and/or
@@ -109,6 +117,13 @@ class NotifyBase(URLBase):
             # runtime.
             '_lookup_default': 'notify_format',
         },
+        'encoding': {
+            'name': _('Notify Format'),
+            'type': 'string',
+            'regex': (r'^([a-z][a-z0-9-]+)$', 'i'),
+            # Provide a default
+            'default': encoding,
+        },
     })
 
     def __init__(self, **kwargs):
@@ -124,23 +139,36 @@ class NotifyBase(URLBase):
             # Store the specified format if specified
             notify_format = kwargs.get('format', '')
             if notify_format.lower() not in NOTIFY_FORMATS:
-                msg = 'Invalid notification format {}'.format(notify_format)
+                msg = 'The notification message format specified ({}) is ' \
+                    'invalid; falling back to default: {}.'.format(
+                        notify_format, self.notify_format)
                 self.logger.error(msg)
-                raise TypeError(msg)
-
-            # Provide override
-            self.notify_format = notify_format
+            else:
+                # Provide override
+                self.notify_format = notify_format
 
         if 'overflow' in kwargs:
-            # Store the specified format if specified
+            # Store the specified overflow mode if specified
             overflow = kwargs.get('overflow', '')
             if overflow.lower() not in OVERFLOW_MODES:
-                msg = 'Invalid overflow method {}'.format(overflow)
+                msg = 'The notification overflow method specified ({}) is ' \
+                    'invalid; falling back to default: {}'.format(
+                        overflow, self.overflow_mode)
+                self.logger.error(msg)
+
+            else:
+                # Provide override
+                self.overflow_mode = overflow
+
+        if 'encoding' in kwargs:
+            # Store the specified encoding if specified
+            self.encoding = validate_regex(
+                kwargs['encoding'], *self.template_args['encoding']['regex'])
+            if not self.encoding:
+                msg = 'The notification message encoding specified ({}) is ' \
+                    'invalid.'.format(kwargs['encoding'])
                 self.logger.error(msg)
                 raise TypeError(msg)
-
-            # Provide override
-            self.overflow_mode = overflow
 
     def image_url(self, notify_type, logo=False, extension=None):
         """
@@ -211,6 +239,33 @@ class NotifyBase(URLBase):
 
         """
 
+        # The possible encoding types
+        encoding = [self.encoding]
+
+        if self.encoding != 'utf-8':
+            # As a fallback (precautionary), try to see if we can decode as
+            # in our expected type of utf-8 since this is what most upstream
+            # services will expect.  We only do this if the encoding hasn't
+            # otherwise already been added to our encodig list
+            encoding.append('utf-8')
+
+        # Enforce our Title and Body to unicode
+        title = to_unicode(title, encoding=encoding)
+        if title is None:
+            # Encoding detection failed
+            self.logger.error(
+                'Could not detect the message title encoding; use encoding= '
+                'to define this.')
+            return False
+
+        body = to_unicode(body, encoding=encoding)
+        if body is None:
+            # Encoding detection failed
+            self.logger.error(
+                'Could not detect message body encoding; use encoding= to '
+                'define this.')
+            return False
+
         # Prepare attachments if required
         if attach is not None and not isinstance(attach, AppriseAttachment):
             try:
@@ -219,9 +274,6 @@ class NotifyBase(URLBase):
             except TypeError:
                 # bad attachments
                 return False
-
-        # Handle situations where the title is None
-        title = '' if not title else title
 
         # Apply our overflow (if defined)
         for chunk in self._apply_overflow(body=body, title=title,
@@ -340,8 +392,13 @@ class NotifyBase(URLBase):
 
         params = {
             'format': self.notify_format,
-            'overflow': self.overflow_mode,
         }
+
+        if self.overflow_mode != self.template_args['overflow']['default']:
+            params['overflow'] = self.overflow_mode
+
+        if re.match(r'^utf-?8$', self.encoding, re.I) is None:
+            params['encoding'] = self.encoding
 
         params.update(super(NotifyBase, self).url_parameters(*args, **kwargs))
 
@@ -374,22 +431,16 @@ class NotifyBase(URLBase):
             return results
 
         # Allow overriding the default format
-        if 'format' in results['qsd']:
+        if 'format' in results['qsd'] and results['qsd']['format']:
             results['format'] = results['qsd'].get('format')
-            if results['format'] not in NOTIFY_FORMATS:
-                URLBase.logger.warning(
-                    'Unsupported format specified {}'.format(
-                        results['format']))
-                del results['format']
 
         # Allow overriding the default overflow
-        if 'overflow' in results['qsd']:
+        if 'overflow' in results['qsd'] and results['qsd']['overflow']:
             results['overflow'] = results['qsd'].get('overflow')
-            if results['overflow'] not in OVERFLOW_MODES:
-                URLBase.logger.warning(
-                    'Unsupported overflow specified {}'.format(
-                        results['overflow']))
-                del results['overflow']
+
+        # Allow overriding the default encoding
+        if 'encoding' in results['qsd'] and results['qsd']['encoding']:
+            results['encoding'] = results['qsd'].get('encoding')
 
         return results
 

@@ -328,7 +328,7 @@ def parse_qsd(qs):
     return result
 
 
-def parse_url(url, default_schema='http', verify_host=True):
+def parse_url(url, default_schema='http', verify_host=True, encoding='utf-8'):
     """A function that greatly simplifies the parsing of a url
     specified by the end user.
 
@@ -350,10 +350,13 @@ def parse_url(url, default_schema='http', verify_host=True):
      The function returns a simple dictionary with all of
      the parsed content within it and returns 'None' if the
      content could not be extracted.
+
+     Content is always converted 'encoding' value specified. No encoding takes
+     place if no value is set.
     """
 
-    if not isinstance(url, six.string_types):
-        # Simple error checking
+    if not url:
+        # Simple Error checking
         return None
 
     # Default Results
@@ -387,7 +390,34 @@ def parse_url(url, default_schema='http', verify_host=True):
         # name before they are stored here.
         'qsd+': {},
         'qsd-': {},
+
+        # The content's encoding
+        'encoding': encoding,
     }
+
+    url = to_unicode(url, encoding)
+    if url is None:
+        # we failed to parse URL because of character decoding detected
+        # let's see if we can find out what this encoding is
+        if six.PY2:
+            # No problem; Plan B is to try and see if the encoding
+            # was specified on the URL string
+            match = re.search(
+                r'[?&]encoding=(?P<encoding>[a-z0-9-]+)', url, re.I)
+
+            if match is None:
+                # There is nothing more we can do at this point
+                return None
+
+            url = to_unicode(url, match.group('encoding').lower())
+            if url is None:
+                # Not parseable
+                return None
+
+        else:
+            # Python 3.x+ already reads back in unicode; so if we can't parse
+            # we're done already
+            return None
 
     qsdata = ''
     match = VALID_URL_RE.search(url)
@@ -494,6 +524,68 @@ def parse_url(url, default_schema='http', verify_host=True):
         result['url'] += result['fullpath']
 
     return result
+
+
+def to_unicode(content, encoding='utf-8'):
+    """
+    Takes any specified content and returns it's unicode value.
+
+    This function does very little if the content is already in unicode.  The
+    encoding can be specified as a list so that if the first element in the
+    list fails to be the correct encoding, then the second is tried.
+    """
+
+    # Take our specified encodings and turn it into a list
+    encodings = set(parse_list(encoding))
+
+    if six.PY2 and not isinstance(content, str):
+        # Python 2 early cast
+        content = str(content)
+
+    if content is None:
+        # Return unicode of nothing
+        return '' if not six.PY2 else u''
+
+    elif six.PY3 and isinstance(content, str) or \
+            six.PY2 and isinstance(content, unicode):  # noqa: F821
+        # Nothing more to do
+        return content
+
+    # We start with an error up front
+    has_error = True
+
+    # now for each speified encoding, we want to attempt to decode our
+    # information:
+    for e in encodings:
+        try:
+            if six.PY2:
+                # Ensure our content decodes correctly into unicode
+                content = content.decode(e)
+
+            else:
+                # Cast our object as a unicode string
+                content = str(content, e)
+
+        except TypeError:
+            # Take an early exit as we won't be able to handle anything
+            # at this point.
+            return None
+
+        except UnicodeDecodeError:
+            # Track our last exeption
+            continue
+
+        # We did good if we made it here
+        has_error = False
+        break
+
+    # We now need to handle our the decoding went
+    if has_error:
+        # we failed..
+        return None
+
+    # return our content if we get here
+    return content
 
 
 def parse_bool(arg, default=False):

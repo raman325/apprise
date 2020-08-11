@@ -26,6 +26,9 @@
 from __future__ import print_function
 import re
 import os
+import sys
+import pytest
+
 try:
     # Python 2.7
     from urllib import unquote
@@ -944,3 +947,74 @@ def test_environ_temporary_change():
     # Even our temporary variables are now missing
     assert n_key not in os.environ
     assert d_key not in os.environ
+
+
+@pytest.mark.skipif(sys.version_info > (3, 0), reason="Requires Python 2")
+def test_apprise_python_2_encoding():
+    """
+    Encoding: Test Apprise URL Loading in Python v2.x
+    """
+
+    # Take a string in non utf-8
+    url = u'mailto://user:pass@hostname?name=Например%20так'\
+        .encode('cyrillic')
+
+    # We can't decode something we don't know in bytes
+    with pytest.raises(UnicodeDecodeError):
+        utils.parse_url(url, encoding='utf-8')
+
+    # No problem if it's already in unicode
+    url = u'mailto://user:pass@hostname?name=Например%20так'
+    result = utils.parse_url(url, encoding='utf-8')
+    assert result['qsd']['name'] == 'Например так'
+    # it's encoded
+    assert isinstance(result['qsd']['name'], str)
+    # it's also of type utf-8 (the below would throw an exception otherwise
+    assert result['qsd']['name'].decode('utf-8') == u'Например так'
+
+    # However, if we let the parser know the current message encoding
+    # we're in much better shape
+    url = u'mailto://user:pass@hostname?name=Например%20так' \
+          u'&encoding=cyrillic'.encode('cyrillic')
+    result = utils.parse_url(url, encoding='utf-8')
+    assert result['qsd']['name'] == 'Например так'
+    # it's encoded
+    assert isinstance(result['qsd']['name'], str)
+    # it's also of type utf-8 (the below would throw an exception otherwise
+    assert result['qsd']['name'].decode('utf-8') == u'Например так'
+
+    # if we however do not know what our encoding is, we'll still have a
+    # failure.
+    url = u'mailto://user:pass@hostname?name=Например%20так' \
+          u'&encoding=cyrillic'.encode('latin1')
+    result = utils.parse_url(url, encoding='utf-8')
+    assert result['qsd']['name'] == 'Например так'
+    # it's encoded
+    assert isinstance(result['qsd']['name'], str)
+    # it's also of type utf-8 (the below would throw an exception otherwise
+    assert result['qsd']['name'].decode('utf-8') == u'Например так'
+
+
+@pytest.mark.skipif(sys.version_info < (3, 0), reason="Requires Python 3")
+def test_apprise_python_3_encoding():
+    """
+    Encoding: Test Apprise URL Loading in Python v3.x
+    """
+
+    # Take a string in non utf-8
+    url = 'mailto://user:pass@hostname?name=Например%20так' \
+          .encode('cyrillic')
+
+    # We can't decode something we don't know in bytes
+    with pytest.raises(UnicodeDecodeError):
+        utils.parse_url(url, encoding='utf-8')
+
+    # This will work okay though as we're utf-8 already
+    url = 'mailto://user:pass@hostname?name=Например%20так' \
+          .encode('utf-8')
+
+    # Perform our parsing
+    result = utils.parse_url(url, encoding='utf-8')
+
+    # Python 3 is pretty magical because it has fixed unicode
+    assert isinstance(result['qsd']['name'], str)

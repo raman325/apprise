@@ -6289,10 +6289,10 @@ def test_notify_overflow_truncate():
             # Pretend everything is okay
             return True
 
-    # We should throw an exception because our specified overflow is wrong.
-    with pytest.raises(TypeError):
-        # Load our object
-        obj = TestNotification(overflow='invalid')
+    # An invalid overflow message just results in an object being created
+    # but with a warning message
+    obj = TestNotification(overflow='invalid')
+    assert obj is not None
 
     # Load our object
     obj = TestNotification(overflow=OverflowMode.TRUNCATE)
