@@ -23,6 +23,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+from asgiref.sync import sync_to_async
 import sys
 import asyncio
 from ..URLBase import URLBase
@@ -101,7 +102,7 @@ class AsyncNotifyBase(URLBase):
         Async Notification Wrapper
         """
         try:
-            return self.notify(*args, **kwargs)
+            return await sync_to_async(self.notify)(*args, **kwargs)
 
         except TypeError:
             # These our our internally thrown notifications
